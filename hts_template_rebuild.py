@@ -87,13 +87,12 @@ def fix_qos(terminal_id):
 
 #def terminal_rebuild(template_id, template_and_version, terminal_ids_exclude):
 
-# @click.command()
-# @click.option('--template_id', help='')
-# @click.option('--template_and_version')
+
 if __name__ == "__main__":
 	logging.debug('START')
-	#terminal_rebuild()
-	#logging.debug('END')
+	
+	# Check cmd line arguments
+	# Ex. ./hts_termplate_rebuild.py <Region of Template to rebuild> <> 
 	# Get all subscribers in OSS
 	#allSubscribers = get_oss_terminals()
 
