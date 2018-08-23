@@ -1,0 +1,25 @@
+{
+    "rebuild_parameters": {
+        "environment": "dev",
+        "template_id": "ASIA_STANDARD",
+        "template_and_version": "EMEA_STANDARD.0005",
+        "list_type": "exception",
+        "terminal_list": [""]
+    },
+    
+    "dev_environment": {
+        "dev_url": "ossdev.minivsat.net",
+        "dev_usr": "opsapi@kvh.com",
+        "dev_pw": "kVh!23456"
+    },
+
+    "prod_environment": {
+        "prod_url": "oss.minivsat.net",
+        "prod_usr": "opsapi@kvh.com",
+        "prod_pw": "kVh!23456"
+    },
+
+    "general": {
+        "async_task_status_check_interval": 30
+    }
+}
