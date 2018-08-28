@@ -48,6 +48,22 @@ def post_oss_sweeper_templates(template_id, template_and_version, terminal_ids_e
 	logging.info('post_oss_sweeper_templates: {}'.format(data))
 	return data
 
+def put_oss_terminal(obj_id, payload):
+	url = "https://{}/api/1.0/hts/terminals/{}".format(oss_url,obj_id)
+
+	#payload = { "obj_revision": 2, "enablestaticroutes": true, "static_ip_data_channel_id": 1703 }
+	# {
+	# "enable_multicast": false,
+	# "is_active": true,
+	# "coremodule_id": 0,
+	# "static_ip_data_channel_id": 0,
+	# "enablestaticroutes": false,
+	# "obj_revision": 1
+	# }
+	response = requests.post(url, json=payload, auth=oss_creds)
+	data = response.json()
+	return response.status_code, data
+
 def get_oss_subscriber(subscriber_id):
 	r = requests.get(
 		"https://{}/api/1.0/hts/subscribers/?subscriber_id={}".format(oss_url,subscriber_id), auth=oss_creds)
@@ -123,25 +139,36 @@ def read_active_terminals_from_file():
 		return pickle.load(input)
 
 def fix_qos(terminal):
-	#start = time.time()
 	hs_sub_resp_code, hs_sub = get_oss_subscriber(terminal+'-01')
 	ul_sub_resp_code, ul_sub = get_oss_subscriber(terminal+'-02')
 
 	if hs_sub_resp_code == 200:
-
+		apply_plan(hs_sub)
 	if ul_sub_resp_code == 200:
-	
-	def apply_plan(subscriber,plan)
-		respCode = patch_oss_subscriber(
-			subscriber['obj_id'], subscriber['subscriber_plan_id'])
-		if respCode == 204:
-			#stop = time.time()
-			#duration = stop - start
-			logging.info('{} plan apply success'.format(subscriber['subscriber_id']))
-			logging.info('Plan apply duration: {}'.format(str(duration)))
+		apply_plan(ul_sub)
 
+	def apply_plan(subscriber):
+		respCode = patch_oss_subscriber(subscriber['obj_id'], subscriber['subscriber_plan_id'])
+		if respCode == 204:
+			logging.info('{} plan apply success'.format(subscriber['subscriber_id']))
 		else:
 			logging.warning('{} plan apply failure function returned {}'.format(subscriber['subscriber_id'],respCode))
+
+def fix_statics(terminal_id, static_payload):
+	# Look up the obj_id
+	status, terminal = get_oss_terminal(terminal_id)
+	if status == 200:
+		
+	for payload in static_payload:
+		if data_channel['enablestaticroutes'] == True:
+			payload = { "obj_revision": terminal_config['obj_revision'], "enablestaticroutes": True, "static_ip_data_channel_id": data_channel['obj_id'] }
+			status_code, data = put_oss_terminal(terminal_config['obj_id'], json.dumps(payload))
+			if status_code == 204:
+				logging.info('{} static fixed for {}'.format(data_channel['obj_id'],terminal_config['terminal_id']))
+			else:
+				logging.warning('Error trying to fix {} static for {} {}'.format(data_channel['obj_id'],terminal_config['terminal_id'], data))
+		else:
+			logging.info('No {} static for {}'.format(data_channel['obj_id'],terminal_config['terminal_id']))
 
 
 def monitor_async(terminalJson):
@@ -169,9 +196,25 @@ def make_terminal_config_dict(some_obj_ids):
 	for obj_id in some_obj_ids:
 		# Pull terminals config based on obj_id
 		term_config_response_code, term_config = get_oss_terminal_config(obj_id)
-		# Add terminal name and static settings to dict
-		terminal_static_dict[obj_id] = term_config['data_channels']
+
+		if term_config_response_code == 200:
+			# Add terminal name and static settings to dict
+			#logging.info(term_config)
+			#terminal_static_dict[term_config['terminal_id']] = term_config
+			static_payload = []
+			# Check if statics are activated
+			for data_channel in term_config['data_channels']:
+				if data_channel['enablestaticroutes'] == True:
+					# Create json payload to post in after terminal is rebuit
+					static_payload.append({ "obj_revision": term_config['obj_revision'], "enablestaticroutes": True, "static_ip_data_channel_id": data_channel['obj_id'] })
+			
+			# Check if the list has some length
+			if len(static_payload) > 0:
+				terminal_static_dict[term_config['terminal_id']] = static_payload
+		else:
+			logging.warning('Failed to lookup terminal config for {} {} {}'.format(obj_id,term_config_response_code, term_config))
 	#return dict
+	logging.info(terminal_static_dict)
 	return terminal_static_dict
 
 # This functions returns all terminals obj_ids, split into two lists
@@ -246,6 +289,7 @@ if __name__ == "__main__":
 
 	# Make a dict of terminals static ips configs
 	terminal_config_dict = make_terminal_config_dict(rebuild_list)
+
 	logging.info('exception list: {}'.format(exception_list))
 	logging.info('There are {} in the exception list'.format(len(exception_list)))
 	logging.info('There are {} in the rebuild list'.format(len(rebuild_list)))
@@ -271,7 +315,10 @@ if __name__ == "__main__":
 				else:
 					if status['result'] == True:
 						pending_async_tasks -=1
+						# After terminal is rebuild NMS is out of sync with plan
 						fix_qos(terminal['terminal']['terminal_id'])
+						# After terminal is rebuilt static settings are lost in terminal config
+						fix_statics(terminal_config_dict[terminal['terminal']['terminal_id']])
 						logging.info('{} rebuild complete'.format(terminal['terminal']['terminal_id']))
 					else:
 						logging.warning('{} result: {} message: {}'.format(terminal['terminal']['terminal_id'], status['result'], status['message']))

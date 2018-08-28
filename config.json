@@ -1,10 +1,10 @@
 {
     "rebuild_parameters": {
         "environment": "dev",
-        "template_id": "ASIA_STANDARD",
-        "template_and_version": "EMEA_STANDARD.0005",
-        "list_type": "exception",
-        "terminal_list": [""]
+        "template_id": "EMEA_STANDARD",
+        "template_and_version": "CONUS_STANDARD.0007",
+        "list_type": "rebuild",
+        "terminal_list": ["15029007"]
     },
     
     "dev_environment": {
