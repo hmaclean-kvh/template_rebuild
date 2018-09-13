@@ -1,10 +1,15 @@
 {
     "rebuild_parameters": {
-        "environment": "dev",
-        "template_id": "EMEA_STANDARD",
-        "template_and_version": "CONUS_STANDARD.0007",
-        "list_type": "rebuild",
-        "terminal_list": ["15029007"]
+        "environment": "prod",
+        "template_id": "CONUS_STANDARD_V7",
+        "template_and_version": "CONUS_STANDARD.0014",
+        "list_type": "exception",
+        "terminal_list": ["99335401","66168995","20950905","20613579","11579266","66168995","19983779","12389169","16329399","18461857","19286528","20555486","61690378","34258428","59838692","86226949"],
+        "chunk": true,
+        "chunk_size": 5,
+        "continue_previous_deploy": true,
+        "continuous": false,
+        "chunk_interval": 900
     },
     
     "dev_environment": {
@@ -20,6 +25,6 @@
     },
 
     "general": {
-        "async_task_status_check_interval": 30
+        "async_task_status_check_interval": 60
     }
 }

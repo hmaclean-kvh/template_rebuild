@@ -50,19 +50,13 @@ def post_oss_sweeper_templates(template_id, template_and_version, terminal_ids_e
 
 def put_oss_terminal(obj_id, payload):
 	url = "https://{}/api/1.0/hts/terminals/{}".format(oss_url,obj_id)
+	
+	# Example payload
+	# payload = { "obj_revision": 2, "enablestaticroutes": true, "static_ip_data_channel_id": 1703 }
 
-	#payload = { "obj_revision": 2, "enablestaticroutes": true, "static_ip_data_channel_id": 1703 }
-	# {
-	# "enable_multicast": false,
-	# "is_active": true,
-	# "coremodule_id": 0,
-	# "static_ip_data_channel_id": 0,
-	# "enablestaticroutes": false,
-	# "obj_revision": 1
-	# }
-	response = requests.post(url, json=payload, auth=oss_creds)
-	data = response.json()
-	return response.status_code, data
+	response = requests.put(url, json=payload, auth=oss_creds)
+	#data = response.json()
+	return response.status_code #, data
 
 def get_oss_subscriber(subscriber_id):
 	r = requests.get(
@@ -102,7 +96,7 @@ def get_oss_async_status(obj_id):
 	r = requests.get(
 		"https://{}/api/1.0/hts/terminals/async/status?obj_id={}".format(oss_url,obj_id), auth=oss_creds)
 	data = r.json()
-	return data
+	return r.status_code, data
 
 def post_oss_terminal_EDk(edk, template_id, terminal_ids):
 	url = "https://{}/api/1.0/hts/sweepers/terminals/customkeys".format(oss_url)
@@ -130,67 +124,102 @@ def get_oss_terminals_status(terminal_obj_id):
 	#logging.debug('get_oss_subscribers: {}'.format(data))
 	return r.status_code, data
 
-def write_active_terminals_to_file(active_terminals):
-	with open('active_terminals_store.pkl', 'wb') as output:
+def write_terminals_to_be_rebuilt_to_file(active_terminals):
+	with open('terminals_to_be_rebuilt.pkl', 'wb') as output:
 		pickle.dump(active_terminals, output)
 
-def read_active_terminals_from_file():
-	with open('active_terminals_store.pkl', 'rb') as input:
+def read_terminals_to_be_rebuilt_from_file():
+	with open('terminals_to_be_rebuilt.pkl', 'rb') as input:
+		return pickle.load(input)
+
+def write_terminals_exception_to_file(active_terminals):
+	with open('terminals_exception.pkl', 'wb') as output:
+		pickle.dump(active_terminals, output)
+
+def read_terminals_exception_from_file():
+	with open('terminals_exception.pkl', 'rb') as input:
+		return pickle.load(input)
+
+def write_terminals_statics_to_file(active_terminals):
+	with open('terminals_statics.pkl', 'wb') as output:
+		pickle.dump(active_terminals, output)
+
+def read_terminals_statics_from_file():
+	with open('terminals_statics.pkl', 'rb') as input:
 		return pickle.load(input)
 
 def fix_qos(terminal):
-	hs_sub_resp_code, hs_sub = get_oss_subscriber(terminal+'-01')
-	ul_sub_resp_code, ul_sub = get_oss_subscriber(terminal+'-02')
-
-	if hs_sub_resp_code == 200:
-		apply_plan(hs_sub)
-	if ul_sub_resp_code == 200:
-		apply_plan(ul_sub)
-
 	def apply_plan(subscriber):
 		respCode = patch_oss_subscriber(subscriber['obj_id'], subscriber['subscriber_plan_id'])
 		if respCode == 204:
 			logging.info('{} plan apply success'.format(subscriber['subscriber_id']))
 		else:
-			logging.warning('{} plan apply failure function returned {}'.format(subscriber['subscriber_id'],respCode))
+			logging.warning('{} plan apply failure {}'.format(subscriber['subscriber_id'],respCode))
+	#hs_sub_resp_code, hs_sub = get_oss_subscriber(terminal+'-01')
+	ul_sub_resp_code, ul_sub = get_oss_subscriber(terminal+'-02')
 
+	# if hs_sub_resp_code == 200:
+	# 	apply_plan(hs_sub)
+	# else:
+	# 	logging.warning('fix qos subscriber lookup failed {} {} {}'.format(terminal,ul_sub_resp_code, ul_sub))
+	if ul_sub_resp_code == 200:
+		apply_plan(ul_sub[0])
+	elif ul_sub_resp_code == 404:
+		logging.warning('fix qos subscriber does not exist')
+	else:
+		logging.warning('fix qos subscriber lookup failed {} {} {}'.format(terminal,ul_sub_resp_code, ul_sub))
+
+# TODO Fix statics function does not handle template region changes
 def fix_statics(terminal_id, static_payload):
 	# Look up the obj_id
 	status, terminal = get_oss_terminal(terminal_id)
 	if status == 200:
-		
-	for payload in static_payload:
-		if data_channel['enablestaticroutes'] == True:
-			payload = { "obj_revision": terminal_config['obj_revision'], "enablestaticroutes": True, "static_ip_data_channel_id": data_channel['obj_id'] }
-			status_code, data = put_oss_terminal(terminal_config['obj_id'], json.dumps(payload))
+		# new_terminal_config_status, new_terminal_config = get_oss_terminal_config(terminal[0]['obj_id'])
+		# if new_terminal_config_status == 200:
+		# 	new_data_channels = new_terminal_config['data_channels']
+			# Loop through static payloads
+		for payload in static_payload:
+			# Post payload to fix satic
+			status_code = put_oss_terminal(terminal[0]['obj_id'], payload)
 			if status_code == 204:
-				logging.info('{} static fixed for {}'.format(data_channel['obj_id'],terminal_config['terminal_id']))
+				logging.info('{} static fixed for {}'.format(payload['static_ip_data_channel_id'],terminal_id))
 			else:
-				logging.warning('Error trying to fix {} static for {} {}'.format(data_channel['obj_id'],terminal_config['terminal_id'], data))
-		else:
-			logging.info('No {} static for {}'.format(data_channel['obj_id'],terminal_config['terminal_id']))
+				logging.warning('Error trying to fix {} static for {} {}'.format(payload['static_ip_data_channel_id'],terminal_id, payload))
+	else:
+		logging.warning('Error trying to fix static, unable to look up obj_id for {} {}'.format(terminal_id, terminal))
 
 
-def monitor_async(terminalJson):
-	isPending = True
-	while isPending:
-		status = get_oss_async_status(terminalJson['obj_id'])
-		try:
-			isPending = not status['complete']
-			if status['complete'] == True:
-				if status['result'] == True:
-					return (True, terminalJson)
-				if status['result'] == False:
-					logging.warning('{} result: {} message: {}'.format(
-						terminalJson['terminal']['terminal_id'], status['result'], status['message']))
-					logging.warning('Payload for failed terminal: {}'.format(terminalJson))
-					return (False, terminalJson)
-		except KeyError:
-			isPending = False
-		time.sleep(10)
-	return (False, terminalJson)
+# def monitor_async(terminalJson):
+# 	isPending = True
+# 	while isPending:
+# 		status = get_oss_async_status(terminalJson['obj_id'])
+# 		try:
+# 			isPending = not status['complete']
+# 			if status['complete'] == True:
+# 				if status['result'] == True:
+# 					return (True, terminalJson)
+# 				if status['result'] == False:
+# 					logging.warning('{} result: {} message: {}'.format(
+# 						terminalJson['terminal']['terminal_id'], status['result'], status['message']))
+# 					logging.warning('Payload for failed terminal: {}'.format(terminalJson))
+# 					return (False, terminalJson)
+# 		except KeyError:
+# 			isPending = False
+# 		time.sleep(10)
+# 	return (False, terminalJson)
 
-def make_terminal_config_dict(some_obj_ids):
+def make_terminal_config_dict(some_obj_ids, destination_template):
+	conus_dc = [1703,1704]
+	emea_dc = [1705,1706]
+	asia_dc = [1707,1708]
+
+	if 'CONUS_STANDARD' in destination_template:
+		dest_dc = conus_dc
+	elif 'EMEA_STANDARD' in destination_template:
+		dest_dc = emea_dc
+	elif 'ASIA_STANDARD' in destination_template:
+		dest_dc = asia_dc
+
 	terminal_static_dict = {}
 
 	for obj_id in some_obj_ids:
@@ -198,15 +227,16 @@ def make_terminal_config_dict(some_obj_ids):
 		term_config_response_code, term_config = get_oss_terminal_config(obj_id)
 
 		if term_config_response_code == 200:
-			# Add terminal name and static settings to dict
-			#logging.info(term_config)
-			#terminal_static_dict[term_config['terminal_id']] = term_config
+			# Var to hold payloads for terminals static fixes
 			static_payload = []
-			# Check if statics are activated
-			for data_channel in term_config['data_channels']:
-				if data_channel['enablestaticroutes'] == True:
-					# Create json payload to post in after terminal is rebuit
-					static_payload.append({ "obj_revision": term_config['obj_revision'], "enablestaticroutes": True, "static_ip_data_channel_id": data_channel['obj_id'] })
+
+			if term_config['data_channels'][0]['enablestaticroutes'] == True:
+				# Create json payload to post in after terminal is rebuit
+				static_payload.append({ "obj_revision": term_config['obj_revision'], "enablestaticroutes": True, "static_ip_data_channel_id": dest_dc[0] })
+			
+			if term_config['data_channels'][1]['enablestaticroutes'] == True:
+				# Create json payload to post in after terminal is rebuit
+				static_payload.append({ "obj_revision": term_config['obj_revision'], "enablestaticroutes": True, "static_ip_data_channel_id": dest_dc[1] })
 			
 			# Check if the list has some length
 			if len(static_payload) > 0:
@@ -214,7 +244,7 @@ def make_terminal_config_dict(some_obj_ids):
 		else:
 			logging.warning('Failed to lookup terminal config for {} {} {}'.format(obj_id,term_config_response_code, term_config))
 	#return dict
-	logging.info(terminal_static_dict)
+	#logging.info(terminal_static_dict)
 	return terminal_static_dict
 
 # This functions returns all terminals obj_ids, split into two lists
@@ -272,58 +302,96 @@ if __name__ == "__main__":
 	# log rebuild parameters
 	logging.info('Rebuild Parameters')
 	logging.info('Environment: {}'.format(rebuild_parameters['environment']))
-	logging.info('Newest version of: {}'.format(rebuild_parameters['template_id']))
+	logging.info('Destination newest version of: {}'.format(rebuild_parameters['template_id']))
 	logging.info('Source template and version: {}'.format(rebuild_parameters['template_and_version']))
 	logging.info('{} list: {}'.format(rebuild_parameters['list_type'],rebuild_parameters['terminal_list']))
 
-	# We are either have a rebuild list or an exception list
-	if rebuild_parameters['list_type'] == 'rebuild':
-		exception_list, rebuild_list = hard_to_name_function(rebuild_parameters['terminal_list'], rebuild_parameters['template_and_version'])
-				
-	elif rebuild_parameters['list_type'] == 'exception':
-		rebuild_list, exception_list = hard_to_name_function(rebuild_parameters['terminal_list'], rebuild_parameters['template_and_version'])
-		
-	else:
-		logging.warning('Invalid list type.. Try "rebuild" or "exception"')
-		sys.exit(0)
+	rebuild_list = []
+	exception_list = []
+	terminal_config_dict = {}
 
-	# Make a dict of terminals static ips configs
-	terminal_config_dict = make_terminal_config_dict(rebuild_list)
+	if rebuild_parameters["continue_previous_deploy"]:
+		try:
+			rebuild_list = read_terminals_to_be_rebuilt_from_file()
+			exception_list = read_terminals_exception_from_file()
+			terminal_config_dict = read_terminals_statics_from_file()
+			logging.info('{} active terminals loaded from file!'.format(rebuild_list))
+		except:
+			logging.critical("failed to load active terminal file {}".format(e))
+			sys.exit(0)
+	else:
+		# We are either have a rebuild list or an exception list
+		if rebuild_parameters['list_type'] == 'rebuild':
+			exception_list, rebuild_list = hard_to_name_function(rebuild_parameters['terminal_list'], rebuild_parameters['template_and_version'])
+		elif rebuild_parameters['list_type'] == 'exception':
+			rebuild_list, exception_list = hard_to_name_function(rebuild_parameters['terminal_list'], rebuild_parameters['template_and_version'])
+		else:
+			logging.warning('Invalid list type.. Try "rebuild" or "exception"')
+			sys.exit(0)
+
+		# Make a dict of terminals static ips configs
+		terminal_config_dict = make_terminal_config_dict(rebuild_list, rebuild_parameters['template_id'])
+
+		write_terminals_statics_to_file(terminal_config_dict)
+		write_terminals_to_be_rebuilt_to_file(rebuild_list)
+		write_terminals_exception_to_file(exception_list)
+		
+		logging.info('Saved rebuild and exception_list to files')
 
 	logging.info('exception list: {}'.format(exception_list))
+	logging.info('Terminals with statics: {}'.format(terminal_config_dict.keys()))
 	logging.info('There are {} in the exception list'.format(len(exception_list)))
 	logging.info('There are {} in the rebuild list'.format(len(rebuild_list)))
 	logging.info('There are {} in the terminal config dictionary'.format(len(terminal_config_dict)))
-
 	# Ask the user to verify the above config is going to do what they want
 	if shall_we_proceed():
-		# Start rebuild process
-		template_rebuild_json = post_oss_sweeper_templates(rebuild_parameters['template_id'], rebuild_parameters['template_and_version'] , exception_list)
+		chunk_size = rebuild_parameters["chunk_size"]
+		chunk_number = 0
+		while len(rebuild_list) > 0:
+			rebuild_list = rebuild_list[chunk_size:]
+			# Start rebuild process
+			template_rebuild_json = post_oss_sweeper_templates(rebuild_parameters['template_id'], rebuild_parameters['template_and_version'] , (exception_list + rebuild_list))
+			# Monitor Template Rebuild Jobs
+			is_async_task_pending = True
+			pending_async_tasks = len(template_rebuild_json)
+			complete_obj_ids = []
+			while is_async_task_pending:
+				is_async_task_pending = False
+				
+				time.sleep(config['general']['async_task_status_check_interval'])
 
-		# Monitor Template Rebuild Jobs
-		is_async_task_pending = True
-		pending_async_tasks = len(template_rebuild_json)
-		while is_async_task_pending:
-			is_async_task_pending = False
-			
-			time.sleep(config['general']['async_task_status_check_interval'])
+				for terminal in template_rebuild_json:
+					if terminal['obj_id'] not in complete_obj_ids:
+						status_code, status = get_oss_async_status(terminal['obj_id'])
+						if status_code == 200:
+							if status['complete'] == False:
+								is_async_task_pending = True
+							else:
+								if status['result'] == True:
+									logging.info(status)
+									pending_async_tasks -=1
+									# After terminal is rebuild NMS is out of sync with plan
+									fix_qos(terminal['terminal']['terminal_id'])
+									# After terminal is rebuilt static settings are lost in terminal config
+									if terminal['terminal']['terminal_id'] in terminal_config_dict:
+										fix_statics(terminal['terminal']['terminal_id'], terminal_config_dict[terminal['terminal']['terminal_id']])
+									logging.info('{} rebuild complete'.format(terminal['terminal']['terminal_id']))
 
-			for terminal in template_rebuild_json:
-				status = get_oss_async_status(terminal['obj_id'])
-				if status['complete'] == False:
-					is_async_task_pending = True
-				else:
-					if status['result'] == True:
-						pending_async_tasks -=1
-						# After terminal is rebuild NMS is out of sync with plan
-						fix_qos(terminal['terminal']['terminal_id'])
-						# After terminal is rebuilt static settings are lost in terminal config
-						fix_statics(terminal_config_dict[terminal['terminal']['terminal_id']])
-						logging.info('{} rebuild complete'.format(terminal['terminal']['terminal_id']))
-					else:
-						logging.warning('{} result: {} message: {}'.format(terminal['terminal']['terminal_id'], status['result'], status['message']))
-						logging.warning('Payload for failed terminal: {}'.format(terminal))
-			logging.info('{} pending async tasks'.format(pending_async_tasks))
+								else:
+									pending_async_tasks -=1
+									logging.warning('{} result: {} message: {}'.format(terminal['terminal']['terminal_id'], status['result'], status['message']))
+									logging.warning('Payload for failed terminal: {}'.format(terminal))
+								complete_obj_ids.append(terminal['obj_id'])
+
+				logging.info('{} pending rebuilds'.format(pending_async_tasks))
+			write_terminals_to_be_rebuilt_to_file(rebuild_list)
+			logging.info('{} terminals remaining'.format(len(rebuild_list)))
+			logging.info('Remaining terminals written to disk')
+			if rebuild_parameters['continuous'] == False:
+				if not shall_we_proceed():
+					sys.exit(0)
+			else:
+				time.sleep(rebuild_parameters['chunk_interval'])
 	else:
 		logging.info('No changes made...')
 		sys.exit(0)
